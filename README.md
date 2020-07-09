@@ -1,2 +1,3 @@
-# FlowNet_v1_TF2
-Tensorflow2/Keras implementation of the original FlowNet model
+# FlowNet in TensorFlow 2.0
+
+FlowNetSimple model from the [Computer Vision Group of Freiburg](https://lmb.informatik.uni-freiburg.de/Publications/2015/DFIB15/flownet.pdf).
