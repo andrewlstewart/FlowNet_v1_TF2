@@ -1,4 +1,5 @@
-"""
+""" FlowNet model written in TF2/Keras
+    https://arxiv.org/pdf/1504.06852.pdf
 """
 
 from typing import List, Dict, Tuple, Optional, Union
@@ -11,6 +12,7 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 
 import utils_io as uio
+import utils
 from config import CONFIG_FLOWNET, CONFIG_TRAINING
 
 
@@ -142,6 +144,7 @@ class DataGenerator:
 
     def __init__(self,
                  network_type: str,
+                 flo_normalization: Tuple[float, float],
                  root_path: Path,
                  batch_size: int,
                  validation_batch_size: int,
@@ -156,6 +159,8 @@ class DataGenerator:
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.replace = True
+        self.flo_normalization = flo_normalization
+        self.augmentations = augmentations
 
     def next_train(self):
 
@@ -164,6 +169,13 @@ class DataGenerator:
             img1 = [uio.read(str(img)) for img in images]
             img2 = [uio.read(str(img).replace('1.ppm', '2.ppm')) for img in images]
             label = [uio.read(str(img).replace('img1.ppm', 'flow.flo')) for img in images]
+
+            img1 = utils.normalize_images(img1)
+            img2 = utils.normalize_images(img2)
+            label = utils.normalize_flo(label, self.flo_normalization)
+
+            if not self.augmentations is None:
+                img1, img2, label = self._augment(img1, img2, label)
 
             if self.network_type == 'simple':
                 images = np.concatenate([img1, img2], axis=-1)
@@ -181,6 +193,10 @@ class DataGenerator:
             img1 = [uio.read(str(img)) for img in images]
             img2 = [uio.read(str(img).replace('1.ppm', '2.ppm')) for img in images]
             label = [uio.read(str(img).replace('img1.ppm', 'flow.flo')) for img in images]
+            
+            img1 = utils.normalize_images(img1)
+            img2 = utils.normalize_images(img2)
+            label = utils.normalize_flo(label, self.flo_normalization)
 
             if self.network_type == 'simple':
                 images = np.concatenate([img1, img2], axis=-1)
@@ -190,6 +206,45 @@ class DataGenerator:
                 raise MalformedNetworkType(f'{self.network_type}: {MalformedNetworkType.__doc__}')
 
             yield (images, np.array(label))
+        
+    def _augment(self, img1, img2, label):
+        # Augmentations are more awkward because of the Siamese architecture, I can't justify applying different color transforms to each image independently
+        r = np.random.rand(len(self.augmentations))
+        r_inc = 0 # This, with r, are used to randomly turn on/off augmentations so that not every augmentation is applied each time
+        r_onoff = 2/5
+        if 'brightness' in self.augmentations and r[r_inc] <= r_onoff:
+            rdm = np.random.rand(self.batch_size) * self.augmentations['brightness']
+            brt = lambda x, idx: tf.image.adjust_brightness(x, rdm[idx]) 
+            img1 = tf.stack([brt(im, idx) for idx, im in enumerate(img1)], axis=0)
+            img2 = tf.stack([brt(im, idx) for idx, im in enumerate(img2)], axis=0)
+            r_inc += 1
+        if 'multiplicative_colour' in self.augmentations and r[r_inc] <= r_onoff:
+            rdm = np.random.rand(self.batch_size, 3) * (self.augmentations['multiplicative_colour'][1] - self.augmentations['multiplicative_colour'][0]) + self.augmentations['multiplicative_colour'][0]
+            mc = lambda x, idx: x * rdm[idx] 
+            img1 = tf.clip_by_value(tf.stack([mc(im, idx) for idx, im in enumerate(img1)], axis=0), clip_value_min=0, clip_value_max=1)
+            img2 = tf.clip_by_value(tf.stack([mc(im, idx) for idx, im in enumerate(img2)], axis=0), clip_value_min=0, clip_value_max=1)
+            r_inc += 1
+        if 'gamma' in self.augmentations and r[r_inc] <= r_onoff:
+            rdm = np.random.rand(self.batch_size) * (self.augmentations['gamma'][1] - self.augmentations['gamma'][0]) + self.augmentations['gamma'][0]
+            gam = lambda x, idx: tf.image.adjust_gamma(x, gamma=rdm[idx]) 
+            img1 = tf.stack([gam(im, idx) for idx, im in enumerate(img1)], axis=0)
+            img2 = tf.stack([gam(im, idx) for idx, im in enumerate(img2)], axis=0)
+            r_inc += 1
+        if 'contrast' in self.augmentations and r[r_inc] <= r_onoff:
+            rdm = np.random.rand(self.batch_size) * (self.augmentations['contrast'][1] - self.augmentations['contrast'][0]) + self.augmentations['contrast'][0]
+            cts = lambda x, idx: tf.image.adjust_contrast(x, contrast_factor=rdm[idx]) 
+            img1 = tf.stack([cts(im, idx) for idx, im in enumerate(img1)], axis=0)
+            img2 = tf.stack([cts(im, idx) for idx, im in enumerate(img2)], axis=0)
+            r_inc += 1
+        if 'gaussian_noise' in self.augmentations and r[r_inc] <= r_onoff:
+            rdm = np.random.rand(self.batch_size) * self.augmentations['gaussian_noise']
+            gau = lambda x, idx: x + tf.random.normal(x.shape, mean=0.0, stddev=rdm[idx], dtype=x.dtype) 
+            img1 = tf.clip_by_value(tf.stack([gau(im, idx) for idx, im in enumerate(img1)], axis=0), clip_value_min=0, clip_value_max=1)
+            img2 = tf.clip_by_value(tf.stack([gau(im, idx) for idx, im in enumerate(img2)], axis=0), clip_value_min=0, clip_value_max=1)
+            r_inc += 1
+        
+        return img1, img2, label
+
 
 
 class EndPointError(tf.keras.losses.Loss):
@@ -240,37 +295,41 @@ def main():
     config_network = deepcopy(CONFIG_FLOWNET)
     config_training = deepcopy(CONFIG_TRAINING)
 
+    # On first run, populate the min, max scaling values for the flo dataset
+    # min, max = utils.get_training_min_max(config_training['img_path'])
+
     flownet = FlowNet(config_network)
 
     loss = EndPointError()
 
     flownet.compile(optimizer=tf.keras.optimizers.Adam(), loss=loss)
 
-    data_generator = DataGenerator(network_type=config_network['architecture'],
-                                   root_path=config_training['img_path'],
-                                   batch_size=config_training['batch_size'],
-                                   validation_batch_size=config_training['validation_batch_size'],
-                                   train_ratio=config_training['train_ratio'],
-                                   test_ratio=config_training['test_ratio'],
-                                   shuffle=config_training['shuffle'])
+    data_generator = DataGenerator(config_network['architecture'],
+                                   config_network['flo_normalization'],
+                                   config_training['img_path'],
+                                   config_training['batch_size'],
+                                   config_training['validation_batch_size'],
+                                   config_training['train_ratio'],
+                                   config_training['test_ratio'],
+                                   config_training['shuffle'],
+                                   config_training['augmentations'])
 
     log_dir = f"logs/fit/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
     checkpoint_filepath = '/tmp/checkpoint'
-    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=checkpoint_filepath,
-        save_weights_only=False,
-        monitor='val_loss',
-        mode='min',
-        save_best_only=True)
+    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath,
+                                                                   save_weights_only=False,
+                                                                   monitor='val_loss',
+                                                                   mode='min',
+                                                                   save_best_only=True)
 
     flownet.fit(x=data_generator.next_train(),
-                epochs=10,
+                epochs=1,
                 verbose=1,
                 steps_per_epoch=22872 // config_training['batch_size'],
                 validation_data=data_generator.next_val(),
-                validation_steps=1,
+                validation_steps=4,
                 validation_batch_size=config_training['validation_batch_size'],
                 callbacks=[tensorboard_callback, model_checkpoint_callback],
                 # use_multiprocessing=True
