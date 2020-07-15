@@ -132,3 +132,4 @@ data/
 venv_FlowNet_TF2/
 .vscode/
 logs/
+checkpoint/
