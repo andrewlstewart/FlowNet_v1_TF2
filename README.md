@@ -16,8 +16,8 @@ The FlowNetS implementation performed better in most scenarios that the FlowNetC
 
 Full network architecture:
 
-<img src="repo_images/graph.png" alt="Graph" style="width:200px;"/>
+<img src="./repo_images/Graph.PNG" alt="Graph" style="width:150px;"/>
 
 Epoch loss curve for an early implementation of the model:
 
-<img src="repo_images/early_epoch_loss.png" alt="Graph" style="width:500px;"/>
+<img src="./repo_images/early_epoch_loss.PNG" alt="Epoch loss" style="width:500px;"/>
