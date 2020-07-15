@@ -2,7 +2,7 @@
     https://arxiv.org/pdf/1504.06852.pdf
 """
 
-from typing import List, Dict, Tuple, Optional, Union
+from typing import Dict, Tuple, Optional, Union
 from pathlib import Path
 from copy import deepcopy
 from datetime import datetime
@@ -112,34 +112,9 @@ class FlowNet:
         raise MalformedNetworkType(f"{config['architecture']}: {MalformedNetworkType.__doc__}")
 
 
-def get_train_val_test(image_names: List[Path],
-                       train_ratio: Union[float, int],
-                       test_ratio: Union[float, int],
-                       shuffle: bool = True) -> Tuple[List[Path], List[Path], List[Path]]:
-    """ Get the train, val, and test sets from a list of all image paths.
-        The test set is the last block and shouldn't be handled until after hyperparameter tuning.
-        This function is sloppy and can easily be broken.  Reasonable values, such as train_ratio=0.7 and test_ratio=0.1
-        will return a train_ratio of 0.7, a validation_ratio of 0.2, and a test_ratio of 0.1 and work fine.
-    """
-    if (not 0 < train_ratio < 1) or (not 0 < test_ratio < 1) or (train_ratio + test_ratio >= 1):
-        raise Exception(f"Why have you done this. Train ratio: {train_ratio}, val ratio: {1-train_ratio-test_ratio}, Test ratio: {test_ratio}.")
-
-    n_images = len(image_names)
-    test = image_names[int(-test_ratio*n_images):]  # Don't use the last set of images until done hyperparameter tuning
-
-    image_names = image_names[:int(-test_ratio*n_images)]
-
-    n_train = int(train_ratio * n_images)
-    if shuffle:
-        np.random.shuffle(image_names)
-    train = image_names[:n_train]
-    val = image_names[n_train:]
-
-    return train, val, test
-
-
 class DataGenerator:
-    """
+    """ Instantiate then call instance.next_train() to get a generator for training images/labels
+            call instance.next_val() to get a generator for validation images/labels
     """
 
     def __init__(self,
@@ -155,7 +130,7 @@ class DataGenerator:
         self.network_type = network_type
 
         images = list(root_path.glob('*1.ppm'))
-        self.train, self.val, self.test = get_train_val_test(images, train_ratio, test_ratio, shuffle)
+        self.train, self.val, self.test = utils.get_train_val_test(images, train_ratio, test_ratio, shuffle)
         self.batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.replace = True
@@ -193,7 +168,7 @@ class DataGenerator:
             img1 = [uio.read(str(img)) for img in images]
             img2 = [uio.read(str(img).replace('1.ppm', '2.ppm')) for img in images]
             label = [uio.read(str(img).replace('img1.ppm', 'flow.flo')) for img in images]
-            
+
             img1 = utils.normalize_images(img1)
             img2 = utils.normalize_images(img2)
             label = utils.normalize_flo(label, self.flo_normalization)
@@ -206,45 +181,47 @@ class DataGenerator:
                 raise MalformedNetworkType(f'{self.network_type}: {MalformedNetworkType.__doc__}')
 
             yield (images, np.array(label))
-        
+
     def _augment(self, img1, img2, label):
         # Augmentations are more awkward because of the Siamese architecture, I can't justify applying different color transforms to each image independently
+        # I'm 100 certain there is a better way to do this as this is extremely inefficient with each call likely containing some portion of each other call.
         r = np.random.rand(len(self.augmentations))
-        r_inc = 0 # This, with r, are used to randomly turn on/off augmentations so that not every augmentation is applied each time
+        r_inc = 0  # This, with r, are used to randomly turn on/off augmentations so that not every augmentation is applied each time
         r_onoff = 2/5
         if 'brightness' in self.augmentations and r[r_inc] <= r_onoff:
             rdm = np.random.rand(self.batch_size) * self.augmentations['brightness']
-            brt = lambda x, idx: tf.image.adjust_brightness(x, rdm[idx]) 
+            def brt(x, idx): return tf.image.adjust_brightness(x, rdm[idx])
             img1 = tf.stack([brt(im, idx) for idx, im in enumerate(img1)], axis=0)
             img2 = tf.stack([brt(im, idx) for idx, im in enumerate(img2)], axis=0)
             r_inc += 1
         if 'multiplicative_colour' in self.augmentations and r[r_inc] <= r_onoff:
-            rdm = np.random.rand(self.batch_size, 3) * (self.augmentations['multiplicative_colour'][1] - self.augmentations['multiplicative_colour'][0]) + self.augmentations['multiplicative_colour'][0]
-            mc = lambda x, idx: x * rdm[idx] 
+            rdm = np.random.rand(self.batch_size, 3) * (self.augmentations['multiplicative_colour'][1] -
+                                                        self.augmentations['multiplicative_colour'][0]) + self.augmentations['multiplicative_colour'][0]
+
+            def mc(x, idx): return x * rdm[idx]
             img1 = tf.clip_by_value(tf.stack([mc(im, idx) for idx, im in enumerate(img1)], axis=0), clip_value_min=0, clip_value_max=1)
             img2 = tf.clip_by_value(tf.stack([mc(im, idx) for idx, im in enumerate(img2)], axis=0), clip_value_min=0, clip_value_max=1)
             r_inc += 1
         if 'gamma' in self.augmentations and r[r_inc] <= r_onoff:
             rdm = np.random.rand(self.batch_size) * (self.augmentations['gamma'][1] - self.augmentations['gamma'][0]) + self.augmentations['gamma'][0]
-            gam = lambda x, idx: tf.image.adjust_gamma(x, gamma=rdm[idx]) 
+            def gam(x, idx): return tf.image.adjust_gamma(x, gamma=rdm[idx])
             img1 = tf.stack([gam(im, idx) for idx, im in enumerate(img1)], axis=0)
             img2 = tf.stack([gam(im, idx) for idx, im in enumerate(img2)], axis=0)
             r_inc += 1
         if 'contrast' in self.augmentations and r[r_inc] <= r_onoff:
             rdm = np.random.rand(self.batch_size) * (self.augmentations['contrast'][1] - self.augmentations['contrast'][0]) + self.augmentations['contrast'][0]
-            cts = lambda x, idx: tf.image.adjust_contrast(x, contrast_factor=rdm[idx]) 
+            def cts(x, idx): return tf.image.adjust_contrast(x, contrast_factor=rdm[idx])
             img1 = tf.stack([cts(im, idx) for idx, im in enumerate(img1)], axis=0)
             img2 = tf.stack([cts(im, idx) for idx, im in enumerate(img2)], axis=0)
             r_inc += 1
         if 'gaussian_noise' in self.augmentations and r[r_inc] <= r_onoff:
             rdm = np.random.rand(self.batch_size) * self.augmentations['gaussian_noise']
-            gau = lambda x, idx: x + tf.random.normal(x.shape, mean=0.0, stddev=rdm[idx], dtype=x.dtype) 
+            def gau(x, idx): return x + tf.random.normal(x.shape, mean=0.0, stddev=rdm[idx], dtype=x.dtype)
             img1 = tf.clip_by_value(tf.stack([gau(im, idx) for idx, im in enumerate(img1)], axis=0), clip_value_min=0, clip_value_max=1)
             img2 = tf.clip_by_value(tf.stack([gau(im, idx) for idx, im in enumerate(img2)], axis=0), clip_value_min=0, clip_value_max=1)
             r_inc += 1
-        
-        return img1, img2, label
 
+        return img1, img2, label
 
 
 class EndPointError(tf.keras.losses.Loss):
@@ -302,7 +279,9 @@ def main():
 
     loss = EndPointError()
 
-    flownet.compile(optimizer=tf.keras.optimizers.Adam(), loss=loss)
+    flownet.compile(optimizer=tf.keras.optimizers.Adam(),
+                    loss=[loss, loss, loss, loss, loss, loss],
+                    loss_weights=config_training['loss_weights'][::-1])
 
     data_generator = DataGenerator(config_network['architecture'],
                                    config_network['flo_normalization'],
@@ -317,15 +296,18 @@ def main():
     log_dir = f"logs/fit/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
-    checkpoint_filepath = '/tmp/checkpoint'
+    checkpoint_filepath = f"checkpoint/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_filepath,
                                                                    save_weights_only=False,
                                                                    monitor='val_loss',
                                                                    mode='min',
                                                                    save_best_only=True)
 
+    if not config_training['pretrained_path'] is None:
+        flownet.model = tf.keras.models.load_model(config_training['pretrained_path'], custom_objects={'EndPointError': EndPointError})
+
     flownet.fit(x=data_generator.next_train(),
-                epochs=1,
+                epochs=10,
                 verbose=1,
                 steps_per_epoch=22872 // config_training['batch_size'],
                 validation_data=data_generator.next_val(),
@@ -341,13 +323,14 @@ def main():
     #
     img, flo = load_images()
     predicted_flo = flownet.predict(img)
+    predicted_flo = utils.denormalize_flo(predicted_flo, config_training['flo_normalization'])
 
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(ncols=2, nrows=3)
     ax[0, 0].imshow(img[0, ..., :3])
     ax[0, 1].imshow(img[0, ..., 3:])
-    ax[1, 0].imshow(flo[..., 0])
-    ax[1, 1].imshow(flo[..., 1])
+    ax[1, 0].imshow(flo[0, ..., 0])
+    ax[1, 1].imshow(flo[0, ..., 1])
     ax[2, 0].imshow(predicted_flo[0, ..., 0])
     ax[2, 1].imshow(predicted_flo[0, ..., 1])
     plt.show()
