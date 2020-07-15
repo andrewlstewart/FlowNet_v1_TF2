@@ -8,4 +8,16 @@ NB: A very high level summary of the FlowNet architecture can be found on [Towar
 
 This implementation was done in Tensorflow2.0/Keras and should be fairly straight forward.  The model is trained on the [Flying Chairs dataset](https://lmb.informatik.uni-freiburg.de/resources/datasets/FlyingChairs.en.html) which takes a few days to download but it's *only* ~32GB packed and 60GB unpacked.
 
+One epoch with data augmentation took ~4hrs on a GTX 1070 8GB.
+
 The FlowNetS implementation performed better in most scenarios that the FlowNetCorr model.  For the sake of time, currently only the FlowNetS model has been implemented.
+
+## Training figures
+
+Full network architecture:
+
+<img src="repo_images/graph.png" alt="Graph" style="width:200px;"/>
+
+Epoch loss curve for an early implementation of the model:
+
+<img src="repo_images/early_epoch_loss.png" alt="Graph" style="width:500px;"/>
