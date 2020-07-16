@@ -8,7 +8,7 @@ CONFIG_FLOWNET = {'architecture': 'simple',
                   'flo_normalization': (-299.7564, 248.32184),  # determined from the training dataset
                   }
 
-CONFIG_TRAINING = {'pretrained_path': None,  # Path(r'C:\Users\andre\Documents\Python\FlowNet_TF2\checkpoint\20200713-225428'), # Can be None
+CONFIG_TRAINING = {'pretrained_path': Path(r'C:\Users\andre\Documents\Python\FlowNet_TF2\checkpoint\20200714-211649'), # Can be None
                    'img_path': Path(r'C:\Users\andre\Documents\Python\FlowNet_TF2\data\FlyingChairs_release\data'),
                    'train_ratio': 0.8,
                    'test_ratio': 0.1,

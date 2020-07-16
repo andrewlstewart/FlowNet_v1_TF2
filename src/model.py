@@ -234,13 +234,13 @@ class EndPointError(tf.keras.losses.Loss):
         return K.sqrt(K.sum(K.square(tf.image.resize(y_true, y_pred.shape[1:3]) - y_pred), axis=1, keepdims=True))
 
 
-def load_images():
+def load_images(image_name: str):
     """ Debug function to load the first image for visualization
     """
     root_path = Path(r'C:\Users\andre\Documents\Python\FlowNet_TF2\data\FlyingChairs_release\data')
-    flo_path = root_path / '00002_flow.flo'
-    img1_path = root_path / '00002_img1.ppm'
-    img2_path = root_path / '00002_img2.ppm'
+    flo_path = root_path / f'{image_name}_flow.flo'
+    img1_path = root_path / f'{image_name}_img1.ppm'
+    img2_path = root_path / f'{image_name}_img2.ppm'
     flo = uio.read(str(flo_path))
     img1 = uio.read(str(img1_path))
     img2 = uio.read(str(img2_path))
@@ -306,30 +306,30 @@ def main():
     if not config_training['pretrained_path'] is None:
         flownet.model = tf.keras.models.load_model(config_training['pretrained_path'], custom_objects={'EndPointError': EndPointError})
 
-    flownet.fit(x=data_generator.next_train(),
-                epochs=10,
-                verbose=1,
-                steps_per_epoch=22872 // config_training['batch_size'],
-                validation_data=data_generator.next_val(),
-                validation_steps=4,
-                validation_batch_size=config_training['validation_batch_size'],
-                callbacks=[tensorboard_callback, model_checkpoint_callback],
-                # use_multiprocessing=True
-                )
+    # flownet.fit(x=data_generator.next_train(),
+    #             epochs=10,
+    #             verbose=1,
+    #             steps_per_epoch=22872 // config_training['batch_size'],
+    #             validation_data=data_generator.next_val(),
+    #             validation_steps=4,
+    #             validation_batch_size=config_training['validation_batch_size'],
+    #             callbacks=[tensorboard_callback, model_checkpoint_callback],
+    #             # use_multiprocessing=True
+    #             )
     flownet.disable_training()
 
     #
     # Temporary debugging and visualization
     #
-    img, flo = load_images()
+    img, flo = load_images(image_name="22868")
     norm_img = utils.normalize_images(img)
     predicted_flo = flownet.predict(norm_img)
     predicted_flo = utils.denormalize_flo(predicted_flo, config_network['flo_normalization'])
-    predicted_flo = tf.image.resize(predicted_flo, (384, 512))
+    predicted_flo = tf.image.resize(predicted_flo, (384, 512)).numpy()
 
     import matplotlib.pyplot as plt
-    scale_min = np.min(np.min(flo), np.min(predicted_flo))
-    scale_max = np.max(np.max(flo), np.max(predicted_flo))
+    scale_min = np.min([np.min(flo), np.min(predicted_flo)])
+    scale_max = np.max([np.max(flo), np.max(predicted_flo)])
     fig, ax = plt.subplots(ncols=2, nrows=3)
     ax[0, 0].imshow(img[0, ..., :3])
     ax[0, 1].imshow(img[0, ..., 3:])

@@ -12,12 +12,32 @@ One epoch with data augmentation took ~4hrs on a GTX 1070 8GB.
 
 The FlowNetS implementation performed better in most scenarios that the FlowNetCorr model.  For the sake of time, currently only the FlowNetS model has been implemented.
 
+## Results
+
+Prediction results after 10 epochs of training.
+
+### Test set prediction:
+
+Ok results:
+
+<img src="./repo_images/test_ok.PNG" alt="Graph" style="width:400px;"/>
+
+Poor results:
+
+<img src="./repo_images/test_poor.PNG" alt="Graph" style="width:400px;"/>
+
+### Train set 'predictions':
+
+<img src="./repo_images/Predictions.PNG" alt="Graph" style="width:400px;"/>
+
+Far better results for the training.  Need to increase the amount of data augmentations and fine tune the hyperparameters or include regularization to improve validation/test set performance.  Future work!
+
 ## Training figures
 
 Full network architecture:
 
 <img src="./repo_images/Graph.PNG" alt="Graph" style="width:150px;"/>
 
-Epoch loss curve for an early implementation of the model:
+Epoch loss curve for the current implementation of the model:
 
-<img src="./repo_images/early_epoch_loss.PNG" alt="Epoch loss" style="width:500px;"/>
+<img src="./repo_images/epoch_loss.PNG" alt="Epoch loss" style="width:500px;"/>
