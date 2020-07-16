@@ -238,9 +238,9 @@ def load_images():
     """ Debug function to load the first image for visualization
     """
     root_path = Path(r'C:\Users\andre\Documents\Python\FlowNet_TF2\data\FlyingChairs_release\data')
-    flo_path = root_path / '00001_flow.flo'
-    img1_path = root_path / '00001_img1.ppm'
-    img2_path = root_path / '00001_img2.ppm'
+    flo_path = root_path / '00002_flow.flo'
+    img1_path = root_path / '00002_img1.ppm'
+    img2_path = root_path / '00002_img2.ppm'
     flo = uio.read(str(flo_path))
     img1 = uio.read(str(img1_path))
     img2 = uio.read(str(img2_path))
@@ -322,17 +322,24 @@ def main():
     # Temporary debugging and visualization
     #
     img, flo = load_images()
-    predicted_flo = flownet.predict(img)
-    predicted_flo = utils.denormalize_flo(predicted_flo, config_training['flo_normalization'])
+    norm_img = utils.normalize_images(img)
+    predicted_flo = flownet.predict(norm_img)
+    predicted_flo = utils.denormalize_flo(predicted_flo, config_network['flo_normalization'])
+    predicted_flo = tf.image.resize(predicted_flo, (384, 512))
 
     import matplotlib.pyplot as plt
+    scale_min = np.min(np.min(flo), np.min(predicted_flo))
+    scale_max = np.max(np.max(flo), np.max(predicted_flo))
     fig, ax = plt.subplots(ncols=2, nrows=3)
     ax[0, 0].imshow(img[0, ..., :3])
     ax[0, 1].imshow(img[0, ..., 3:])
-    ax[1, 0].imshow(flo[0, ..., 0])
-    ax[1, 1].imshow(flo[0, ..., 1])
-    ax[2, 0].imshow(predicted_flo[0, ..., 0])
-    ax[2, 1].imshow(predicted_flo[0, ..., 1])
+    ax[0, 0].set_ylabel('Input images')
+    ax[1, 0].imshow(flo[0, ..., 0], vmin=scale_min, vmax=scale_max)
+    ax[1, 1].imshow(flo[0, ..., 1], vmin=scale_min, vmax=scale_max)
+    ax[1, 0].set_ylabel('Ground truth flows')
+    ax[2, 0].imshow(predicted_flo[0, ..., 0], vmin=scale_min, vmax=scale_max)
+    ax[2, 1].imshow(predicted_flo[0, ..., 1], vmin=scale_min, vmax=scale_max)
+    ax[2, 0].set_ylabel('Predicted flows')
     plt.show()
 
     print('stall')
